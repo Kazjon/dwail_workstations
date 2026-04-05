@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>dwail</title>
+  <style>
+    body { font-family: monospace; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.2rem; }
+    section { margin-bottom: 2rem; border: 1px solid #ccc; padding: 1rem; }
+    input, textarea { width: 100%; box-sizing: border-box; font-family: monospace; }
+    button { margin-top: 0.5rem; }
+    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; }
+    .tab-bar button { margin-right: 0.5rem; }
+    .tab { display: none; }
+    .tab.active { display: block; }
+    #status-badge { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>dwail</h1>
+
+  <!-- Workstation Management -->
+  <section>
+    <h2>Workstations</h2>
+    <div id="workstation-list">Loading...</div>
+    <hr>
+    <label>Add workstation (ZeroTier IP):
+      <input id="add-ip" type="text" placeholder="10.x.x.x">
+    </label>
+    <button onclick="addWorkstation()">Add</button>
+    <div id="add-error" style="color:red"></div>
+  </section>
+
+  <!-- Model Loader -->
+  <section>
+    <h2>Load Model</h2>
+    <label>Model ID (HuggingFace path):
+      <input id="model-id" type="text" placeholder="meta-llama/Llama-3.1-8B-Instruct">
+    </label>
+    <button onclick="loadModel()">Load Model</button>
+    <div id="load-status"></div>
+    <div id="load-error" style="color:red"></div>
+  </section>
+
+  <!-- Code Snippets -->
+  <section id="snippets-section" style="display:none">
+    <h2>Snippets</h2>
+    <p>Endpoint: <code id="endpoint-url"></code></p>
+    <div class="tab-bar">
+      <button onclick="showTab('py-basic')">Python (basic)</button>
+      <button onclick="showTab('py-async')">Python (async)</button>
+      <button onclick="showTab('py-stream')">Python (streaming)</button>
+      <button onclick="showTab('js-basic')">JS (basic)</button>
+      <button onclick="showTab('js-stream')">JS (streaming)</button>
+    </div>
+    <div id="py-basic" class="tab active"><pre id="py-basic-code"></pre></div>
+    <div id="py-async" class="tab"><pre id="py-async-code"></pre></div>
+    <div id="py-stream" class="tab"><pre id="py-stream-code"></pre></div>
+    <div id="js-basic" class="tab"><pre id="js-basic-code"></pre></div>
+    <div id="js-stream" class="tab"><pre id="js-stream-code"></pre></div>
+  </section>
+
+  <!-- Test Panel -->
+  <section id="test-section" style="display:none">
+    <h2>Test</h2>
+    <label>Prompt:
+      <textarea id="test-prompt" rows="3" placeholder="Say hello."></textarea>
+    </label>
+    <button onclick="runTest()">Send</button>
+    <div id="test-stats" style="color:#666; font-size:0.85rem;"></div>
+    <pre id="test-output" style="min-height:4rem; background:#f4f4f4; padding:1rem;"></pre>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
