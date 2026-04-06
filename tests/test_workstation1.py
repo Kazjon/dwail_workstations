@@ -209,6 +209,53 @@ async def test_controller_current_model(ws1_ip, ws1_agent, test_model, controlle
 
 
 @pytest.mark.workstation1
+async def test_controller_stop_model(ws1_ip, ws1_agent, test_model, controller_client):
+    """Load a model via the controller, then stop it via POST /models/stop."""
+    add_r = await controller_client.post("/workstations", json={"ip": ws1_ip})
+    assert add_r.status_code == 201
+    ws_id = add_r.json()["id"]
+
+    try:
+        load_r = await controller_client.post("/models/load", json={"model_id": test_model})
+        assert load_r.status_code == 202
+
+        await poll_once()
+
+        # Stop via controller
+        stop_r = await controller_client.post("/models/stop")
+        assert stop_r.status_code == 200
+        data = stop_r.json()
+        assert ws1_ip in data["stopped"]
+        assert data["failed"] == []
+
+        # Wait for agent to confirm idle
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                s = await client.get(f"{ws1_agent}/status")
+                if s.json()["vllm_state"] == "idle":
+                    break
+                await asyncio.sleep(2)
+            else:
+                pytest.fail("vLLM did not reach idle after stop")
+
+        # /models/current should now 404
+        await poll_once()
+        assert (await controller_client.get("/models/current")).status_code == 404
+
+    finally:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            await client.post(f"{ws1_agent}/vllm/stop")
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                s = await client.get(f"{ws1_agent}/status")
+                if s.json()["vllm_state"] == "idle":
+                    break
+                await asyncio.sleep(2)
+        await controller_client.delete(f"/workstations/{ws_id}")
+
+
+@pytest.mark.workstation1
 async def test_controller_add_ws1_and_load(ws1_ip, test_model, controller_client):
     """
     Full round-trip through the controller: register WS1, load model, verify response.
