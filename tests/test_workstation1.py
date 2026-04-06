@@ -8,7 +8,7 @@ Model defaults to facebook/opt-125m (always loaded fresh).
 Override with DWAIL_TEST_MODEL=<hf-id> to use a larger pre-downloaded model.
 
 Run with:
-  DWAIL_WS1_IP=10.x.x.x uv run pytest -m workstation1
+  DWAIL_WS1_IP=10.x.x.x uv run pytest -m workstation1 -v -s
 """
 
 import asyncio
@@ -16,11 +16,21 @@ import time
 
 import httpx
 import pytest
+from httpx import ASGITransport, AsyncClient
+
+from dwail_controller.main import app as controller_app
+from dwail_controller import registry
 
 AGENT_PORT = 8765
 VLLM_READY_TIMEOUT = 600
 POLL_INTERVAL = 5
-CONTROLLER_URL = "http://127.0.0.1:8080"
+
+# opt-125m is GPT-2 family — no chat template, must use /v1/completions
+CHAT_MODELS = ()  # add model id prefixes here as chat models are tested
+
+
+def _is_chat_model(model_id: str) -> bool:
+    return any(model_id.startswith(p) for p in CHAT_MODELS)
 
 
 @pytest.fixture(scope="module")
@@ -34,13 +44,21 @@ async def ws1_agent(ws1_ip):
         except Exception as e:
             pytest.fail(f"Cannot reach agent at {url}: {e}")
 
-        # Stop any currently running vLLM so tests start from known state
         status = await client.get(f"{url}/status")
         if status.json()["vllm_state"] != "idle":
             await client.post(f"{url}/vllm/stop")
             await asyncio.sleep(3)
 
     return url
+
+
+@pytest.fixture
+async def controller_client():
+    """In-process controller client — no need to run dwail-controller separately."""
+    registry.clear()
+    async with AsyncClient(transport=ASGITransport(app=controller_app), base_url="http://test") as c:
+        yield c
+    registry.clear()
 
 
 @pytest.mark.workstation1
@@ -79,7 +97,7 @@ async def test_ws1_model_list(ws1_agent):
 async def test_ws1_load_and_infer(ws1_agent, test_model):
     """
     Load the test model on WS1, wait for ready, run an inference, then stop.
-    Uses test_model (default: opt-125m, override with DWAIL_TEST_MODEL).
+    Uses /v1/chat/completions for chat models, /v1/completions for base models.
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(f"{ws1_agent}/vllm/start", json={
@@ -102,44 +120,44 @@ async def test_ws1_load_and_infer(ws1_agent, test_model):
         else:
             pytest.fail(f"vLLM did not reach 'running' in {VLLM_READY_TIMEOUT}s")
 
-        # Infer via vLLM's OpenAI endpoint
-        ws1_vllm_url = ws1_agent.replace(str(AGENT_PORT), "8000")
-        infer_r = await client.post(f"{ws1_vllm_url}/v1/chat/completions", json={
-            "model": test_model,
-            "messages": [{"role": "user", "content": "Say hello."}],
-            "max_tokens": 20,
-        })
-        assert infer_r.status_code == 200
-        assert len(infer_r.json()["choices"]) > 0
+        vllm_url = ws1_agent.replace(str(AGENT_PORT), "8000")
 
-        # Stop
+        if _is_chat_model(test_model):
+            infer_r = await client.post(f"{vllm_url}/v1/chat/completions", json={
+                "model": test_model,
+                "messages": [{"role": "user", "content": "Say hello."}],
+                "max_tokens": 20,
+            })
+            assert infer_r.status_code == 200, infer_r.text
+            assert len(infer_r.json()["choices"]) > 0
+        else:
+            infer_r = await client.post(f"{vllm_url}/v1/completions", json={
+                "model": test_model,
+                "prompt": "Hello",
+                "max_tokens": 20,
+            })
+            assert infer_r.status_code == 200, infer_r.text
+            assert len(infer_r.json()["choices"]) > 0
+
         stop_r = await client.post(f"{ws1_agent}/vllm/stop")
         assert stop_r.status_code == 202
 
 
 @pytest.mark.workstation1
-async def test_controller_add_ws1_and_load(ws1_ip, test_model):
+async def test_controller_add_ws1_and_load(ws1_ip, test_model, controller_client):
     """
-    Full round-trip through the controller: register WS1, load model, verify endpoint.
-    Requires the controller to be running locally (uv run dwail-controller).
+    Full round-trip through the controller: register WS1, load model, verify response.
+    Uses an in-process controller — no need to start dwail-controller separately.
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # Clean slate — remove WS1 if already registered
-        wss = (await client.get(f"{CONTROLLER_URL}/workstations")).json()
-        for ws in wss:
-            if ws["ip"] == ws1_ip:
-                await client.delete(f"{CONTROLLER_URL}/workstations/{ws['id']}")
+    add_r = await controller_client.post("/workstations", json={"ip": ws1_ip})
+    assert add_r.status_code == 201
+    ws_id = add_r.json()["id"]
 
-        # Register
-        add_r = await client.post(f"{CONTROLLER_URL}/workstations", json={"ip": ws1_ip})
-        assert add_r.status_code == 201
-        ws_id = add_r.json()["id"]
+    load_r = await controller_client.post("/models/load", json={"model_id": test_model})
+    assert load_r.status_code == 202
+    assert load_r.json()["mode"] == "single"
 
-        # Load model
-        load_r = await client.post(f"{CONTROLLER_URL}/models/load", json={"model_id": test_model})
-        assert load_r.status_code == 202
-        assert load_r.json()["mode"] == "single"
-
-        # Clean up
+    # Clean up
+    async with httpx.AsyncClient(timeout=10.0) as client:
         await client.post(f"http://{ws1_ip}:{AGENT_PORT}/vllm/stop")
-        await client.delete(f"{CONTROLLER_URL}/workstations/{ws_id}")
+    await controller_client.delete(f"/workstations/{ws_id}")

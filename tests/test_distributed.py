@@ -18,11 +18,28 @@ import time
 
 import httpx
 import pytest
+from httpx import ASGITransport, AsyncClient
+
+from dwail_controller.main import app as controller_app
+from dwail_controller import registry
 
 AGENT_PORT = 8765
 VLLM_READY_TIMEOUT = 600
 POLL_INTERVAL = 5
-CONTROLLER_URL = "http://127.0.0.1:8080"
+
+CHAT_MODELS = ()  # add model id prefixes here as chat models are tested
+
+
+def _is_chat_model(model_id: str) -> bool:
+    return any(model_id.startswith(p) for p in CHAT_MODELS)
+
+
+@pytest.fixture
+async def controller_client():
+    registry.clear()
+    async with AsyncClient(transport=ASGITransport(app=controller_app), base_url="http://test") as c:
+        yield c
+    registry.clear()
 
 
 @pytest.fixture(scope="module")
@@ -116,12 +133,19 @@ async def test_distributed_load_and_infer(both_agents, ws1_ip, ws2_ip, test_mode
 
         # Infer via WS1's endpoint (head node)
         ws1_vllm_url = f"http://{ws1_ip}:8000"
-        infer_r = await client.post(f"{ws1_vllm_url}/v1/chat/completions", json={
-            "model": test_model,
-            "messages": [{"role": "user", "content": "Say hello."}],
-            "max_tokens": 20,
-        })
-        assert infer_r.status_code == 200
+        if _is_chat_model(test_model):
+            infer_r = await client.post(f"{ws1_vllm_url}/v1/chat/completions", json={
+                "model": test_model,
+                "messages": [{"role": "user", "content": "Say hello."}],
+                "max_tokens": 20,
+            })
+        else:
+            infer_r = await client.post(f"{ws1_vllm_url}/v1/completions", json={
+                "model": test_model,
+                "prompt": "Hello",
+                "max_tokens": 20,
+            })
+        assert infer_r.status_code == 200, infer_r.text
         assert len(infer_r.json()["choices"]) > 0
 
         # Stop both
@@ -130,43 +154,27 @@ async def test_distributed_load_and_infer(both_agents, ws1_ip, ws2_ip, test_mode
 
 
 @pytest.mark.distributed
-async def test_controller_distributed_load(ws1_ip, ws2_ip, test_model):
+async def test_controller_distributed_load(ws1_ip, ws2_ip, test_model, controller_client):
     """
-    Full round-trip: register both workstations with the controller,
-    load a model that triggers distributed mode, verify response.
+    Full round-trip: register both workstations with the in-process controller,
+    load a model, verify response.
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # Clean slate
-        wss = (await client.get(f"{CONTROLLER_URL}/workstations")).json()
-        for ws in wss:
-            if ws["ip"] in (ws1_ip, ws2_ip):
-                await client.delete(f"{CONTROLLER_URL}/workstations/{ws['id']}")
+    r1 = await controller_client.post("/workstations", json={"ip": ws1_ip})
+    assert r1.status_code == 201
+    r2 = await controller_client.post("/workstations", json={"ip": ws2_ip})
+    assert r2.status_code == 201
 
-        # Register both
-        r1 = await client.post(f"{CONTROLLER_URL}/workstations", json={"ip": ws1_ip})
-        assert r1.status_code == 201
-        r2 = await client.post(f"{CONTROLLER_URL}/workstations", json={"ip": ws2_ip})
-        assert r2.status_code == 201
+    load_r = await controller_client.post("/models/load", json={"model_id": test_model})
+    assert load_r.status_code == 202
+    assert load_r.json()["mode"] in ("single", "distributed")
 
-        # Patch the VRAM estimate to force distributed mode for small model
-        # (In practice a large DWAIL_TEST_MODEL would trigger this naturally)
-        # For opt-125m we test that the controller correctly routes to single mode,
-        # but if a large model is specified it will route to distributed.
-        load_r = await client.post(f"{CONTROLLER_URL}/models/load", json={"model_id": test_model})
-        assert load_r.status_code == 202
-        # Mode depends on model size vs available VRAM — either is valid
-        assert load_r.json()["mode"] in ("single", "distributed")
-
-        # Clean up
+    # Clean up vLLM on workstations
+    async with httpx.AsyncClient(timeout=10.0) as client:
         for ip in (ws1_ip, ws2_ip):
             try:
                 await client.post(f"http://{ip}:{AGENT_PORT}/vllm/stop")
             except Exception:
                 pass
-        wss = (await client.get(f"{CONTROLLER_URL}/workstations")).json()
-        for ws in wss:
-            if ws["ip"] in (ws1_ip, ws2_ip):
-                await client.delete(f"{CONTROLLER_URL}/workstations/{ws['id']}")
 
 
 @pytest.mark.distributed
@@ -181,11 +189,18 @@ async def test_speed_comparison(both_agents, ws1_ip, test_model):
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         start = time.perf_counter()
-        r = await client.post(f"{ws1_vllm_url}/v1/chat/completions", json={
-            "model": test_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 100,
-        })
+        if _is_chat_model(test_model):
+            r = await client.post(f"{ws1_vllm_url}/v1/chat/completions", json={
+                "model": test_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 100,
+            })
+        else:
+            r = await client.post(f"{ws1_vllm_url}/v1/completions", json={
+                "model": test_model,
+                "prompt": prompt,
+                "max_tokens": 100,
+            })
         elapsed = time.perf_counter() - start
 
     assert r.status_code == 200
