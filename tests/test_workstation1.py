@@ -20,6 +20,7 @@ from httpx import ASGITransport, AsyncClient
 
 from dwail_controller.main import app as controller_app
 from dwail_controller import registry
+from dwail_controller.status_poller import poll_once
 
 AGENT_PORT = 8765
 VLLM_READY_TIMEOUT = 600
@@ -142,6 +143,69 @@ async def test_ws1_load_and_infer(ws1_agent, test_model):
 
         stop_r = await client.post(f"{ws1_agent}/vllm/stop")
         assert stop_r.status_code == 202
+
+
+@pytest.mark.workstation1
+async def test_controller_current_model(ws1_ip, ws1_agent, test_model, controller_client):
+    """
+    Load a model via the controller, wait for vLLM to be running,
+    then verify GET /models/current returns correct data.
+    """
+    add_r = await controller_client.post("/workstations", json={"ip": ws1_ip})
+    assert add_r.status_code == 201
+    ws_id = add_r.json()["id"]
+
+    try:
+        load_r = await controller_client.post("/models/load", json={"model_id": test_model})
+        assert load_r.status_code == 202
+
+        # Sync registry with the agent's updated state (poller not running in-process)
+        await poll_once()
+
+        # /models/current should show loading or running state
+        current_r = await controller_client.get("/models/current")
+        assert current_r.status_code == 200
+        data = current_r.json()
+        assert data["model_id"] == test_model
+        assert data["vllm_state"] in ("loading", "running")
+        assert data["endpoint"] == f"http://{ws1_ip}:8000/v1"
+        assert ws1_ip in data["workstations"]
+        assert data["mode"] == "single"
+        assert "supports_chat" in data
+        assert data["capability_confidence"] in ("high", "low")
+
+        # Wait for fully running, then re-poll and re-check
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            deadline = time.time() + VLLM_READY_TIMEOUT
+            while time.time() < deadline:
+                s = await client.get(f"{ws1_agent}/status")
+                state = s.json()["vllm_state"]
+                if state == "running":
+                    break
+                if state == "error":
+                    pytest.fail(f"vLLM error: {s.json()}")
+                await asyncio.sleep(POLL_INTERVAL)
+            else:
+                pytest.fail(f"vLLM did not reach 'running' in {VLLM_READY_TIMEOUT}s")
+
+        await poll_once()  # sync registry now that vLLM is running
+        current_r2 = await controller_client.get("/models/current")
+        assert current_r2.status_code == 200
+        assert current_r2.json()["vllm_state"] == "running"
+        # opt-125m has no chat template — should report False
+        assert current_r2.json()["supports_chat"] is False
+
+    finally:
+        # Always clean up — wait for vLLM to fully stop before the next test
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            await client.post(f"{ws1_agent}/vllm/stop")
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                s = await client.get(f"{ws1_agent}/status")
+                if s.json()["vllm_state"] == "idle":
+                    break
+                await asyncio.sleep(2)
+        await controller_client.delete(f"/workstations/{ws_id}")
 
 
 @pytest.mark.workstation1
