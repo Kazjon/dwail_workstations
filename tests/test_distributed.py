@@ -59,7 +59,8 @@ async def both_agents(ws1_ip, ws2_ip):
 
             status = await client.get(f"{url}/status")
             if status.json()["vllm_state"] != "idle":
-                await client.post(f"{url}/vllm/stop")
+                async with httpx.AsyncClient(timeout=60.0) as stop_client:
+                    await stop_client.post(f"{url}/vllm/stop")
                 await asyncio.sleep(3)
 
     return urls
