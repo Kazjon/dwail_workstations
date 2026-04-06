@@ -100,6 +100,7 @@ def _ensure_model_dir(model_dir: Path) -> None:
 
 
 def _write_service(python: str, agent_bin: str, model_dir: Path, port: int) -> None:
+    venv_bin = Path(python).parent
     unit = textwrap.dedent(f"""\
         [Unit]
         Description=dwail workstation agent
@@ -108,6 +109,7 @@ def _write_service(python: str, agent_bin: str, model_dir: Path, port: int) -> N
         [Service]
         Type=simple
         ExecStart={agent_bin}
+        Environment=PATH={venv_bin}:/usr/local/bin:/usr/bin:/bin
         Environment=DWAIL_MODEL_DIR={model_dir}
         Environment=DWAIL_PORT={port}
         Restart=on-failure
@@ -133,7 +135,9 @@ def _setup_ray(as_head: bool, worker_head_ip: str | None) -> None:
         # Default: start as head node
         as_head = True
 
-    ray = shutil.which("ray")
+    # Look for ray in the same bin dir as our Python first (venv-aware, sudo-safe)
+    bin_dir = Path(sys.executable).parent
+    ray = str(bin_dir / "ray") if (bin_dir / "ray").exists() else shutil.which("ray")
     if not ray:
         print("[dwail-install] WARNING: 'ray' not found in PATH. Skipping Ray setup.")
         print("                Install with: pip install ray")
