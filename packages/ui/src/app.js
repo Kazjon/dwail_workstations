@@ -41,15 +41,17 @@ function dwailApp() {
         return r.json();
       }).then(data => {
         if (!data) return;
-        this.currentModel  = data.model_id;
-        this.endpoint      = data.endpoint;
-        this.mode          = data.mode;
-        this.supportsChat  = data.supports_chat;
+        this.currentModel = data.model_id;
+        this.endpoint     = data.endpoint;
+        this.mode         = data.mode;
+        this.supportsChat = data.supports_chat;
         if (data.vllm_state === "running") {
           this.modelState = "running";
         } else if (data.vllm_state === "loading") {
           this.modelState = "loading";
           this._startPolling();
+        } else if (data.vllm_state === "error") {
+          this.modelError = `vLLM failed to start "${data.model_id}". Check workstation logs.`;
         }
       });
     },
@@ -157,7 +159,7 @@ function dwailApp() {
 
     async _pollCurrent() {
       const r = await fetch("/models/current");
-      if (!r.ok) return; // still starting, keep polling
+      if (!r.ok) return; // 404 = nothing active yet, keep polling
       const data = await r.json();
       if (data.vllm_state === "running") {
         this._stopPolling();
@@ -168,8 +170,9 @@ function dwailApp() {
         await this.refreshWorkstations();
       } else if (data.vllm_state === "error") {
         this._stopPolling();
-        this.modelError = "vLLM failed to start.";
+        this.modelError = `vLLM failed to start "${data.model_id}". Check workstation logs.`;
         this.modelState = "idle";
+        await this.refreshWorkstations();
       }
     },
 

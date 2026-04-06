@@ -71,21 +71,33 @@ async def current_model():
     workstations = registry.list_workstations()
     active = [
         ws for ws in workstations
-        if ws.status and ws.status.vllm_state in (VLLMState.running, VLLMState.loading)
+        if ws.status and ws.status.vllm_state in (VLLMState.running, VLLMState.loading, VLLMState.error)
         and ws.status.current_model
     ]
     if not active:
         raise HTTPException(status_code=404, detail="No model currently loaded.")
 
     model_id = active[0].status.current_model
-    capability = detect_capability(model_id)
+    vllm_state = active[0].status.vllm_state
     mode = "distributed" if len(active) > 1 else "single"
     endpoint = f"http://{active[0].ip}:8000/v1"
 
+    if vllm_state == VLLMState.error:
+        return {
+            "model_id": model_id,
+            "endpoint": endpoint,
+            "vllm_state": vllm_state,
+            "supports_chat": None,
+            "capability_confidence": None,
+            "workstations": [ws.ip for ws in active],
+            "mode": mode,
+        }
+
+    capability = detect_capability(model_id)
     return {
         "model_id": model_id,
         "endpoint": endpoint,
-        "vllm_state": active[0].status.vllm_state,
+        "vllm_state": vllm_state,
         "supports_chat": capability.supports_chat,
         "capability_confidence": capability.confidence,
         "workstations": [ws.ip for ws in active],

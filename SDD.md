@@ -1,7 +1,7 @@
 # Software Design Document: dwail_workstations
 
 **Status**: Draft  
-**Last updated**: 2026-04-07 (UI complete)
+**Last updated**: 2026-04-07
 
 ---
 
@@ -156,6 +156,8 @@ Below the snippets, a test panel:
 | 2026-04-05 | Ray starts with the agent; persistent cluster | Workstations are dedicated; ~200-400MB idle overhead is acceptable |
 | 2026-04-07 | `POST /models/stop` broadcasts stop to all active workstations | Needed for model switching via UI; tolerates agent unreachability |
 | 2026-04-07 | Model capability detection via HF tokenizer_config.json + name heuristics | Determines chat vs. base model; affects code snippet format |
+| 2026-04-07 | WorkstationStatus VRAM totals as computed_field | Plain @property not serialized by Pydantic v2; computed_field required for JSON output |
+| 2026-04-07 | /models/current includes error state | Polling loop would run forever on vLLM failure without it; UI needs a terminal state to stop on |
 
 ---
 

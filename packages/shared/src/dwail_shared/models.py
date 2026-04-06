@@ -4,7 +4,7 @@ from enum import Enum
 from ipaddress import IPv4Address
 from typing import Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, computed_field, field_validator, model_validator
 
 
 class VLLMState(str, Enum):
@@ -42,10 +42,12 @@ class WorkstationStatus(BaseModel):
     current_model: str | None = None
     ray_running: bool
 
+    @computed_field
     @property
     def total_vram_mb(self) -> int:
         return sum(g.vram_total_mb for g in self.gpu_info)
 
+    @computed_field
     @property
     def free_vram_mb(self) -> int:
         return sum(g.vram_free_mb for g in self.gpu_info)

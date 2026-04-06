@@ -112,7 +112,7 @@
     </template>
 
     <div class="add-row">
-      <input x-model="addIp" type="text" placeholder="10.x.x.x" @keydown.enter="addWorkstation()">
+      <input x-model="addIp" type="text" placeholder="Add new workstation by IP" @keydown.enter="addWorkstation()">
       <button @click="addWorkstation()" :disabled="addIp.trim() === ''">Add</button>
     </div>
     <div class="error" x-show="addError" x-text="addError"></div>
@@ -129,6 +129,13 @@
                @keydown.enter="loadModel()">
         <button @click="loadModel()" :disabled="modelInput.trim() === ''">Load</button>
         <div class="error" x-show="modelError" x-text="modelError"></div>
+        <p class="muted" style="margin-top:0.8rem; line-height:1.6;">
+          Paste a HuggingFace model ID above (e.g. <code>meta-llama/Llama-3.1-8B-Instruct</code>
+          or <code>mistralai/Mistral-7B-v0.1</code>). The controller will estimate VRAM
+          requirements and route to the right workstation(s) automatically. The model must
+          already be downloaded on the workstation — use
+          <code>huggingface-cli download &lt;model-id&gt;</code> there first if needed.
+        </p>
       </div>
     </template>
 
@@ -172,12 +179,19 @@
   </section>
 
   <!-- Test -->
-  <section x-show="modelState === 'running'">
+  <section>
     <h2>Test</h2>
-    <textarea x-model="testPrompt" rows="3" placeholder="Say hello."></textarea>
-    <button @click="runTest()" :disabled="testRunning || testPrompt.trim() === ''">Send</button>
-    <pre x-text="testOutput || ' '" style="min-height: 4rem; margin-top: 0.6rem;"></pre>
-    <div class="stats" x-show="testStats" x-text="testStats"></div>
+    <template x-if="modelState !== 'running'">
+      <p class="muted">Load a model to enable the test panel.</p>
+    </template>
+    <template x-if="modelState === 'running'">
+      <div>
+        <textarea x-model="testPrompt" rows="3" placeholder="Say hello."></textarea>
+        <button @click="runTest()" :disabled="testRunning || testPrompt.trim() === ''">Send</button>
+        <pre x-text="testOutput || ' '" style="min-height: 4rem; margin-top: 0.6rem;"></pre>
+        <div class="stats" x-show="testStats" x-text="testStats"></div>
+      </div>
+    </template>
   </section>
 
   <script src="app.js"></script>

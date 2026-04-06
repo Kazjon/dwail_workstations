@@ -127,6 +127,28 @@ async def test_current_model_loading_state(client):
     assert r.json()["model_id"] == "meta-llama/Llama-3.1-8B-Instruct"
 
 
+async def test_current_model_error_state_returns_200(client):
+    """A workstation in 'error' state should be reported so the UI can stop polling."""
+    registry.add(
+        ip="10.147.18.230",
+        agent_port=8765,
+        status=WorkstationStatus(
+            ip="10.147.18.230",
+            agent_version="0.1.0",
+            gpu_info=[],
+            vllm_state=VLLMState.error,
+            current_model="google/gemma-3-27b-it",
+            ray_running=True,
+        ),
+    )
+    r = await client.get("/models/current")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["vllm_state"] == "error"
+    assert data["model_id"] == "google/gemma-3-27b-it"
+    assert data["supports_chat"] is None
+
+
 async def test_current_model_distributed_lists_both_workstations(client, mocker):
     """Two workstations running the same model → both appear in workstations list."""
     mocker.patch("dwail_controller.model_capability.hf_hub_download",
