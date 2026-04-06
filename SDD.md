@@ -173,9 +173,9 @@ These are intentionally deferred — record here so they're easy to pick up afte
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Level 3 distributed tests | **Not yet run** | Requires WS2 (10.147.18.61) to be set up — blocked on disk space/cleanup, expected later in week |
-| Large model testing | **Not yet run** | All hardware tests so far used `facebook/opt-125m`; need to test with a real large model (e.g. Llama 3.1 70B) once WS2 is up |
-| Multi-workstation distributed inference | **Not yet run** | Ray cluster across WS1+WS2 untested end-to-end; pipeline parallel vLLM across nodes untested |
+| Level 3 distributed tests | **Blocked** | Both WS1 and WS2 have disk space issues; needs cleanup before large model downloads possible |
+| Large model testing | **Blocked** | Disk space on both workstations exhausted; opt-125m is the only tested model |
+| Multi-workstation distributed inference | **Blocked** | WS2 disk space issue; Ray cluster across nodes untested end-to-end |
 | UI wiring | **Complete** | Alpine.js FSM (idle/loading/running), polls /models/current, chat/base snippet switching, test panel |
 | HF token threading | **Not started** | Gated models (Gemma 4, Llama 3) require an HF token on both the workstation (for download/serving) and the Mac controller (for capability detection via hf_hub_download). Goal: user provides token once via the UI or controller config; controller passes it to agents so workstations never need manual ssh intervention after initial setup. |
 | vLLM version management | **Not started** | vLLM must support the model architecture (e.g. Gemma4ForCausalLM). Currently requires manual `pip install --upgrade vllm` on each workstation. Goal: controller should surface the installed vLLM version per workstation and warn when a requested model's architecture may not be supported. |
