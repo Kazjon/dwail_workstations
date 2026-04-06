@@ -1,7 +1,7 @@
 # Software Design Document: dwail_workstations
 
 **Status**: Draft  
-**Last updated**: 2026-04-05 (session 2)
+**Last updated**: 2026-04-06
 
 ---
 
@@ -160,6 +160,22 @@ Below the snippets, a test panel:
 ## 7. Open Questions
 
 - **UI testing**: pytest + vitest for JS, or skip JS tests in v1?
+
+---
+
+## 8. Known Gaps / Return-To Items
+
+These are intentionally deferred — record here so they're easy to pick up after a break.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Level 3 distributed tests | **Not yet run** | Requires WS2 (10.147.18.61) to be set up — blocked on disk space/cleanup, expected later in week |
+| Large model testing | **Not yet run** | All hardware tests so far used `facebook/opt-125m`; need to test with a real large model (e.g. Llama 3.1 70B) once WS2 is up |
+| Multi-workstation distributed inference | **Not yet run** | Ray cluster across WS1+WS2 untested end-to-end; pipeline parallel vLLM across nodes untested |
+| Controller status polling | **In progress** | Background task to periodically poll agents and update registry; needed before UI is useful |
+| UI wiring | **Skeleton only** | HTML/JS exists but not wired to real controller API |
+| Model capability detection | **Not started** | Chat vs. base model detection; affects snippet format |
+| `CHAT_MODELS` list | **Hardcoded empty** | Currently all models use `/v1/completions`; needs populating or auto-detection |
 
 ---
 

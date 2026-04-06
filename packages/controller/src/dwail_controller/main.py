@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uvicorn
 import httpx
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -16,8 +17,17 @@ from dwail_shared.models import (
     WorkstationStatus,
 )
 from dwail_controller import registry, vram_estimator
+from dwail_controller.status_poller import start_poller
 
-app = FastAPI(title="dwail-controller")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = await start_poller()
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="dwail-controller", lifespan=lifespan)
 
 # Total VRAM across all workstations (2x RTX 3090 each)
 SINGLE_WS_VRAM_MB = 48 * 1024
