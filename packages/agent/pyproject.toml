@@ -21,6 +21,7 @@ dev = [
 [project.scripts]
 dwail-agent = "dwail_agent.main:run"
 dwail-agent-install = "dwail_agent.install:main"
+dwail-agent-update = "dwail_agent.update:main"
 
 [build-system]
 requires = ["hatchling"]
