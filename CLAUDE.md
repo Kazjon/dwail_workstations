@@ -23,6 +23,10 @@ dwail_workstations/
 - Workstations are accessed over ZeroTier VPN IPs
 - vLLM runs on the workstations, not the client
 
+## Workflow Rules
+
+- Always update SDD.md before committing — keep the Known Gaps table and any relevant sections current.
+
 ## Commands
 
 ```bash

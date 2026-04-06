@@ -93,6 +93,29 @@ async def current_model():
     }
 
 
+@app.post("/models/stop")
+async def stop_model():
+    workstations = registry.list_workstations()
+    active = [
+        ws for ws in workstations
+        if ws.status and ws.status.vllm_state in (VLLMState.running, VLLMState.loading)
+    ]
+    if not active:
+        raise HTTPException(status_code=404, detail="No model currently loaded.")
+
+    stopped, failed = [], []
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for ws in active:
+            try:
+                resp = await client.post(f"http://{ws.ip}:{ws.agent_port}/vllm/stop")
+                resp.raise_for_status()
+                stopped.append(ws.ip)
+            except Exception:
+                failed.append(ws.ip)
+
+    return {"stopped": stopped, "failed": failed}
+
+
 @app.get("/models/estimate", response_model=VRAMEstimate)
 async def estimate_vram(model_id: str = Query(...)):
     return vram_estimator.estimate(model_id)

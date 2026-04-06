@@ -1,7 +1,7 @@
 # Software Design Document: dwail_workstations
 
 **Status**: Draft  
-**Last updated**: 2026-04-06
+**Last updated**: 2026-04-07
 
 ---
 
@@ -154,6 +154,8 @@ Below the snippets, a test panel:
 | 2026-04-05 | Fixed model directory on workstations (configurable at agent install) | Simplicity; no per-workstation UI config needed |
 | 2026-04-05 | Agent install: pip + systemd | Simpler than Docker for dedicated GPU machines; no container GPU passthrough friction |
 | 2026-04-05 | Ray starts with the agent; persistent cluster | Workstations are dedicated; ~200-400MB idle overhead is acceptable |
+| 2026-04-07 | `POST /models/stop` broadcasts stop to all active workstations | Needed for model switching via UI; tolerates agent unreachability |
+| 2026-04-07 | Model capability detection via HF tokenizer_config.json + name heuristics | Determines chat vs. base model; affects code snippet format |
 
 ---
 
@@ -172,10 +174,7 @@ These are intentionally deferred — record here so they're easy to pick up afte
 | Level 3 distributed tests | **Not yet run** | Requires WS2 (10.147.18.61) to be set up — blocked on disk space/cleanup, expected later in week |
 | Large model testing | **Not yet run** | All hardware tests so far used `facebook/opt-125m`; need to test with a real large model (e.g. Llama 3.1 70B) once WS2 is up |
 | Multi-workstation distributed inference | **Not yet run** | Ray cluster across WS1+WS2 untested end-to-end; pipeline parallel vLLM across nodes untested |
-| Controller status polling | **In progress** | Background task to periodically poll agents and update registry; needed before UI is useful |
-| UI wiring | **Skeleton only** | HTML/JS exists but not wired to real controller API |
-| Model capability detection | **Not started** | Chat vs. base model detection; affects snippet format |
-| `CHAT_MODELS` list | **Hardcoded empty** | Currently all models use `/v1/completions`; needs populating or auto-detection |
+| UI wiring | **Skeleton only** | HTML/JS exists but not wired to real controller API; next after backend complete |
 
 ---
 
