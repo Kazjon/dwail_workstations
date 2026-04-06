@@ -1,221 +1,271 @@
-// dwail UI — communicates with the controller at localhost:8080
+// dwail UI — Alpine.js component
+// Served by the controller at localhost:8080; all API calls are relative.
 
-const API = "";  // relative, controller serves this file
+function dwailApp() {
+  return {
+    // --- Workstation state ---
+    workstations: [],
+    addIp: "",
+    addError: "",
 
-let activeModel = null;
-let activeEndpoint = null;
+    // --- Model FSM: idle | loading | running ---
+    modelState: "idle",
+    modelInput: "",
+    currentModel: "",
+    endpoint: "",
+    mode: "",
+    supportsChat: false,
+    modelError: "",
 
-// --- Workstations ---
+    // --- Snippets ---
+    activeTab: "py-basic",
 
-async function loadWorkstations() {
-  const res = await fetch(`${API}/workstations`);
-  const workstations = await res.json();
-  const el = document.getElementById("workstation-list");
-  if (workstations.length === 0) {
-    el.textContent = "No workstations registered.";
-    return;
-  }
-  el.innerHTML = workstations.map(ws => {
-    const s = ws.status;
-    const vram = s ? `${s.gpu_info.length}x GPU, ${Math.round(s.total_vram_mb / 1024)}GB total` : "unreachable";
-    const state = s ? s.vllm_state : "offline";
-    const model = s?.current_model ? ` — ${s.current_model}` : "";
-    return `<div><strong>${ws.ip}</strong> [${state}${model}] ${vram}
-      <button onclick="removeWorkstation('${ws.id}')">Remove</button></div>`;
-  }).join("");
-}
+    // --- Test panel ---
+    testPrompt: "",
+    testOutput: "",
+    testStats: "",
+    testRunning: false,
 
-async function addWorkstation() {
-  const ip = document.getElementById("add-ip").value.trim();
-  const errEl = document.getElementById("add-error");
-  errEl.textContent = "";
-  const res = await fetch(`${API}/workstations`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ip }),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    errEl.textContent = err.detail || "Failed to add workstation.";
-    return;
-  }
-  document.getElementById("add-ip").value = "";
-  await loadWorkstations();
-}
+    // Internal
+    _pollTimer: null,
 
-async function removeWorkstation(id) {
-  await fetch(`${API}/workstations/${id}`, { method: "DELETE" });
-  await loadWorkstations();
-}
+    // ------------------------------------------------------------------ init
 
-// --- Model Loading ---
+    init() {
+      this.refreshWorkstations();
+      setInterval(() => this.refreshWorkstations(), 5000);
 
-async function loadModel() {
-  const modelId = document.getElementById("model-id").value.trim();
-  const statusEl = document.getElementById("load-status");
-  const errEl = document.getElementById("load-error");
-  errEl.textContent = "";
-  statusEl.textContent = "Loading...";
-
-  const res = await fetch(`${API}/models/load`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model_id: modelId }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json();
-    errEl.textContent = err.detail || "Failed to load model.";
-    statusEl.textContent = "";
-    return;
-  }
-
-  const data = await res.json();
-  activeModel = modelId;
-  const ip = Array.isArray(data.workstations) ? data.workstations[0] : data.workstation;
-  activeEndpoint = `http://${ip}:8000/v1`;
-
-  statusEl.textContent = `Mode: ${data.mode} — endpoint: ${activeEndpoint}`;
-  renderSnippets(modelId, activeEndpoint);
-  document.getElementById("snippets-section").style.display = "";
-  document.getElementById("test-section").style.display = "";
-  await loadWorkstations();
-}
-
-// --- Snippets ---
-
-function renderSnippets(modelId, endpoint) {
-  document.getElementById("endpoint-url").textContent = endpoint;
-
-  document.getElementById("py-basic-code").textContent =
-`from openai import OpenAI
-
-client = OpenAI(base_url="${endpoint}", api_key="none")
-
-response = client.chat.completions.create(
-    model="${modelId}",
-    messages=[{"role": "user", "content": "Hello"}],
-)
-print(response.choices[0].message.content)`;
-
-  document.getElementById("py-async-code").textContent =
-`import asyncio
-from openai import AsyncOpenAI
-
-client = AsyncOpenAI(base_url="${endpoint}", api_key="none")
-
-async def main():
-    response = await client.chat.completions.create(
-        model="${modelId}",
-        messages=[{"role": "user", "content": "Hello"}],
-    )
-    print(response.choices[0].message.content)
-
-asyncio.run(main())`;
-
-  document.getElementById("py-stream-code").textContent =
-`from openai import OpenAI
-
-client = OpenAI(base_url="${endpoint}", api_key="none")
-
-with client.chat.completions.stream(
-    model="${modelId}",
-    messages=[{"role": "user", "content": "Hello"}],
-) as stream:
-    for chunk in stream:
-        print(chunk.choices[0].delta.content or "", end="", flush=True)`;
-
-  document.getElementById("js-basic-code").textContent =
-`const response = await fetch("${endpoint}/chat/completions", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    model: "${modelId}",
-    messages: [{ role: "user", content: "Hello" }],
-  }),
-});
-const data = await response.json();
-console.log(data.choices[0].message.content);`;
-
-  document.getElementById("js-stream-code").textContent =
-`const response = await fetch("${endpoint}/chat/completions", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    model: "${modelId}",
-    messages: [{ role: "user", content: "Hello" }],
-    stream: true,
-  }),
-});
-const reader = response.body.getReader();
-const decoder = new TextDecoder();
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  const lines = decoder.decode(value).split("\\n");
-  for (const line of lines) {
-    if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
-    const chunk = JSON.parse(line.slice(6));
-    process.stdout.write(chunk.choices[0].delta.content ?? "");
-  }
-}`;
-}
-
-function showTab(name) {
-  document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
-  document.getElementById(name).classList.add("active");
-}
-
-// --- Test Panel ---
-
-async function runTest() {
-  if (!activeEndpoint || !activeModel) return;
-  const prompt = document.getElementById("test-prompt").value.trim();
-  const outputEl = document.getElementById("test-output");
-  const statsEl = document.getElementById("test-stats");
-  outputEl.textContent = "";
-  statsEl.textContent = "";
-
-  const startTime = performance.now();
-  let firstTokenTime = null;
-  let tokenCount = 0;
-
-  const response = await fetch(`${activeEndpoint}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: activeModel,
-      messages: [{ role: "user", content: prompt }],
-      stream: true,
-    }),
-  });
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const lines = decoder.decode(value).split("\n");
-    for (const line of lines) {
-      if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
-      try {
-        const chunk = JSON.parse(line.slice(6));
-        const delta = chunk.choices[0].delta.content ?? "";
-        if (delta) {
-          if (firstTokenTime === null) firstTokenTime = performance.now();
-          tokenCount++;
-          outputEl.textContent += delta;
+      // Re-attach to any model already running when the page loads
+      fetch("/models/current").then(r => {
+        if (!r.ok) return;
+        return r.json();
+      }).then(data => {
+        if (!data) return;
+        this.currentModel  = data.model_id;
+        this.endpoint      = data.endpoint;
+        this.mode          = data.mode;
+        this.supportsChat  = data.supports_chat;
+        if (data.vllm_state === "running") {
+          this.modelState = "running";
+        } else if (data.vllm_state === "loading") {
+          this.modelState = "loading";
+          this._startPolling();
         }
-      } catch (_) {}
-    }
-  }
+      });
+    },
 
-  const totalMs = performance.now() - startTime;
-  const ttft = firstTokenTime ? (firstTokenTime - startTime).toFixed(0) : "—";
-  const tps = tokenCount > 0 ? (tokenCount / (totalMs / 1000)).toFixed(1) : "—";
-  statsEl.textContent = `TTFT: ${ttft}ms  |  ${tps} tok/s  |  ${tokenCount} tokens  |  ${(totalMs / 1000).toFixed(2)}s total`;
+    // --------------------------------------------------------- Workstations
+
+    async refreshWorkstations() {
+      const r = await fetch("/workstations");
+      if (r.ok) this.workstations = await r.json();
+    },
+
+    async addWorkstation() {
+      this.addError = "";
+      const r = await fetch("/workstations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip: this.addIp.trim() }),
+      });
+      if (!r.ok) {
+        const err = await r.json();
+        this.addError = err.detail || "Failed to add workstation.";
+        return;
+      }
+      this.addIp = "";
+      await this.refreshWorkstations();
+    },
+
+    async removeWorkstation(id) {
+      await fetch(`/workstations/${id}`, { method: "DELETE" });
+      await this.refreshWorkstations();
+    },
+
+    wsBadgeClass(ws) {
+      if (!ws.status) return "offline";
+      return ws.status.vllm_state || "offline";
+    },
+
+    wsStateLabel(ws) {
+      if (!ws.status) return "offline";
+      const s = ws.status;
+      return s.current_model ? `${s.vllm_state} — ${s.current_model}` : s.vllm_state;
+    },
+
+    wsDetail(ws) {
+      if (!ws.status) return "unreachable";
+      const s = ws.status;
+      const gpus = s.gpu_info.length;
+      const gb = Math.round(s.total_vram_mb / 1024);
+      const freeGb = (s.free_vram_mb / 1024).toFixed(0);
+      return `${gpus}× GPU  ${freeGb}/${gb}GB free`;
+    },
+
+    // ------------------------------------------------------------- Model FSM
+
+    async loadModel() {
+      this.modelError = "";
+      this.currentModel = this.modelInput.trim();
+      this.modelState = "loading";
+
+      const r = await fetch("/models/load", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: this.currentModel }),
+      });
+
+      if (!r.ok) {
+        const err = await r.json();
+        this.modelError = err.detail || "Failed to load model.";
+        this.modelState = "idle";
+        return;
+      }
+
+      const data = await r.json();
+      this.mode = data.mode;
+      this._startPolling();
+    },
+
+    async stopModel() {
+      this._stopPolling();
+      const r = await fetch("/models/stop", { method: "POST" });
+      if (!r.ok && r.status !== 404) {
+        const err = await r.json();
+        this.modelError = err.detail || "Failed to stop model.";
+        return;
+      }
+      this.modelState = "idle";
+      this.currentModel = "";
+      this.endpoint = "";
+      this.supportsChat = false;
+      this.modelError = "";
+      await this.refreshWorkstations();
+    },
+
+    _startPolling() {
+      this._stopPolling();
+      this._pollTimer = setInterval(() => this._pollCurrent(), 3000);
+    },
+
+    _stopPolling() {
+      if (this._pollTimer) {
+        clearInterval(this._pollTimer);
+        this._pollTimer = null;
+      }
+    },
+
+    async _pollCurrent() {
+      const r = await fetch("/models/current");
+      if (!r.ok) return; // still starting, keep polling
+      const data = await r.json();
+      if (data.vllm_state === "running") {
+        this._stopPolling();
+        this.endpoint     = data.endpoint;
+        this.supportsChat = data.supports_chat;
+        this.mode         = data.mode;
+        this.modelState   = "running";
+        await this.refreshWorkstations();
+      } else if (data.vllm_state === "error") {
+        this._stopPolling();
+        this.modelError = "vLLM failed to start.";
+        this.modelState = "idle";
+      }
+    },
+
+    // ------------------------------------------------------------ Snippets
+
+    snippet() {
+      const m = this.currentModel;
+      const e = this.endpoint;
+      const chatUrl   = `${e}/chat/completions`;
+      const compUrl   = `${e}/completions`;
+      const chat = this.supportsChat;
+
+      const snippets = {
+        "py-basic": chat
+          ? `from openai import OpenAI\n\nclient = OpenAI(base_url="${e}", api_key="none")\n\nresponse = client.chat.completions.create(\n    model="${m}",\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(response.choices[0].message.content)`
+          : `from openai import OpenAI\n\nclient = OpenAI(base_url="${e}", api_key="none")\n\nresponse = client.completions.create(\n    model="${m}",\n    prompt="Hello",\n)\nprint(response.choices[0].text)`,
+
+        "py-async": chat
+          ? `import asyncio\nfrom openai import AsyncOpenAI\n\nclient = AsyncOpenAI(base_url="${e}", api_key="none")\n\nasync def main():\n    response = await client.chat.completions.create(\n        model="${m}",\n        messages=[{"role": "user", "content": "Hello"}],\n    )\n    print(response.choices[0].message.content)\n\nasyncio.run(main())`
+          : `import asyncio\nfrom openai import AsyncOpenAI\n\nclient = AsyncOpenAI(base_url="${e}", api_key="none")\n\nasync def main():\n    response = await client.completions.create(\n        model="${m}",\n        prompt="Hello",\n    )\n    print(response.choices[0].text)\n\nasyncio.run(main())`,
+
+        "py-stream": chat
+          ? `from openai import OpenAI\n\nclient = OpenAI(base_url="${e}", api_key="none")\n\nwith client.chat.completions.stream(\n    model="${m}",\n    messages=[{"role": "user", "content": "Hello"}],\n) as stream:\n    for chunk in stream:\n        print(chunk.choices[0].delta.content or "", end="", flush=True)`
+          : `from openai import OpenAI\n\nclient = OpenAI(base_url="${e}", api_key="none")\n\nfor chunk in client.completions.create(\n    model="${m}",\n    prompt="Hello",\n    stream=True,\n):\n    print(chunk.choices[0].text or "", end="", flush=True)`,
+
+        "js-basic": chat
+          ? `const response = await fetch("${chatUrl}", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    model: "${m}",\n    messages: [{ role: "user", content: "Hello" }],\n  }),\n});\nconst data = await response.json();\nconsole.log(data.choices[0].message.content);`
+          : `const response = await fetch("${compUrl}", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    model: "${m}",\n    prompt: "Hello",\n  }),\n});\nconst data = await response.json();\nconsole.log(data.choices[0].text);`,
+
+        "js-stream": chat
+          ? `const response = await fetch("${chatUrl}", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    model: "${m}",\n    messages: [{ role: "user", content: "Hello" }],\n    stream: true,\n  }),\n});\nconst reader = response.body.getReader();\nconst decoder = new TextDecoder();\nwhile (true) {\n  const { done, value } = await reader.read();\n  if (done) break;\n  for (const line of decoder.decode(value).split("\\n")) {\n    if (!line.startsWith("data: ") || line === "data: [DONE]") continue;\n    const chunk = JSON.parse(line.slice(6));\n    process.stdout.write(chunk.choices[0].delta.content ?? "");\n  }\n}`
+          : `const response = await fetch("${compUrl}", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    model: "${m}",\n    prompt: "Hello",\n    stream: true,\n  }),\n});\nconst reader = response.body.getReader();\nconst decoder = new TextDecoder();\nwhile (true) {\n  const { done, value } = await reader.read();\n  if (done) break;\n  for (const line of decoder.decode(value).split("\\n")) {\n    if (!line.startsWith("data: ") || line === "data: [DONE]") continue;\n    const chunk = JSON.parse(line.slice(6));\n    process.stdout.write(chunk.choices[0].text ?? "");\n  }\n}`,
+      };
+
+      return snippets[this.activeTab] || "";
+    },
+
+    async copySnippet() {
+      await navigator.clipboard.writeText(this.snippet());
+    },
+
+    // ---------------------------------------------------------- Test panel
+
+    async runTest() {
+      if (this.testRunning) return;
+      this.testRunning = true;
+      this.testOutput  = "";
+      this.testStats   = "";
+
+      const startTime = performance.now();
+      let firstTokenTime = null;
+      let tokenCount = 0;
+
+      try {
+        const body = this.supportsChat
+          ? { model: this.currentModel, messages: [{ role: "user", content: this.testPrompt }], stream: true }
+          : { model: this.currentModel, prompt: this.testPrompt, stream: true };
+
+        const url = this.supportsChat
+          ? `${this.endpoint}/chat/completions`
+          : `${this.endpoint}/completions`;
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        const reader  = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const line of decoder.decode(value).split("\n")) {
+            if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+            try {
+              const chunk = JSON.parse(line.slice(6));
+              const delta = this.supportsChat
+                ? (chunk.choices[0].delta.content ?? "")
+                : (chunk.choices[0].text ?? "");
+              if (delta) {
+                if (firstTokenTime === null) firstTokenTime = performance.now();
+                tokenCount++;
+                this.testOutput += delta;
+              }
+            } catch (_) {}
+          }
+        }
+      } finally {
+        this.testRunning = false;
+        const totalMs = performance.now() - startTime;
+        const ttft = firstTokenTime ? `${(firstTokenTime - startTime).toFixed(0)}ms` : "—";
+        const tps  = tokenCount > 0 ? `${(tokenCount / (totalMs / 1000)).toFixed(1)} tok/s` : "—";
+        this.testStats = `TTFT: ${ttft}  |  ${tps}  |  ${tokenCount} tokens  |  ${(totalMs / 1000).toFixed(2)}s`;
+      }
+    },
+  };
 }
-
-// Init
-loadWorkstations();

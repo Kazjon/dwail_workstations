@@ -1,7 +1,7 @@
 # Software Design Document: dwail_workstations
 
 **Status**: Draft  
-**Last updated**: 2026-04-07
+**Last updated**: 2026-04-07 (UI complete)
 
 ---
 
@@ -174,7 +174,7 @@ These are intentionally deferred — record here so they're easy to pick up afte
 | Level 3 distributed tests | **Not yet run** | Requires WS2 (10.147.18.61) to be set up — blocked on disk space/cleanup, expected later in week |
 | Large model testing | **Not yet run** | All hardware tests so far used `facebook/opt-125m`; need to test with a real large model (e.g. Llama 3.1 70B) once WS2 is up |
 | Multi-workstation distributed inference | **Not yet run** | Ray cluster across WS1+WS2 untested end-to-end; pipeline parallel vLLM across nodes untested |
-| UI wiring | **Skeleton only** | HTML/JS exists but not wired to real controller API; next after backend complete |
+| UI wiring | **Complete** | Alpine.js FSM (idle/loading/running), polls /models/current, chat/base snippet switching, test panel |
 
 ---
 

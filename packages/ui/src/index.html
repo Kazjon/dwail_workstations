@@ -3,72 +3,181 @@
 <head>
   <meta charset="UTF-8">
   <title>dwail</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
   <style>
-    body { font-family: monospace; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-    h1 { font-size: 1.2rem; }
-    section { margin-bottom: 2rem; border: 1px solid #ccc; padding: 1rem; }
-    input, textarea { width: 100%; box-sizing: border-box; font-family: monospace; }
-    button { margin-top: 0.5rem; }
-    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; }
-    .tab-bar button { margin-right: 0.5rem; }
-    .tab { display: none; }
-    .tab.active { display: block; }
-    #status-badge { font-weight: bold; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: monospace;
+      max-width: 860px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    h1 { font-size: 1.1rem; color: #aaa; margin-bottom: 1.5rem; }
+    h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin: 0 0 1rem; }
+    section {
+      margin-bottom: 1.5rem;
+      border: 1px solid #333;
+      padding: 1.2rem;
+      border-radius: 4px;
+    }
+    input, textarea {
+      width: 100%;
+      background: #111;
+      color: #e0e0e0;
+      border: 1px solid #444;
+      padding: 0.4rem 0.6rem;
+      font-family: monospace;
+      font-size: 0.9rem;
+      border-radius: 3px;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #666; }
+    button {
+      background: #2a2a2a;
+      color: #ccc;
+      border: 1px solid #444;
+      padding: 0.35rem 0.8rem;
+      font-family: monospace;
+      font-size: 0.85rem;
+      cursor: pointer;
+      border-radius: 3px;
+      margin-top: 0.5rem;
+      margin-right: 0.4rem;
+    }
+    button:hover:not(:disabled) { background: #333; border-color: #666; color: #fff; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.active { background: #3a3a3a; border-color: #888; color: #fff; }
+    .error { color: #e06c75; font-size: 0.85rem; margin-top: 0.4rem; }
+    .muted { color: #666; font-size: 0.85rem; }
+    pre {
+      background: #111;
+      border: 1px solid #333;
+      padding: 1rem;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      border-radius: 3px;
+      margin: 0.6rem 0;
+      white-space: pre;
+    }
+    .ws-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.8rem;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 0.9rem;
+    }
+    .ws-row:last-child { border-bottom: none; }
+    .ws-ip { color: #e0e0e0; min-width: 140px; }
+    .ws-detail { color: #888; flex: 1; }
+    .badge {
+      font-size: 0.75rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 3px;
+      border: 1px solid;
+    }
+    .badge-idle    { color: #888; border-color: #444; }
+    .badge-loading { color: #e5c07b; border-color: #6b5a2a; }
+    .badge-running { color: #98c379; border-color: #3a5a2a; }
+    .badge-error   { color: #e06c75; border-color: #5a2a2a; }
+    .badge-offline { color: #666;  border-color: #333; }
+    .model-status { font-size: 0.9rem; margin: 0.6rem 0; }
+    .tab-bar { display: flex; gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .snippet-copy { font-size: 0.8rem; margin-top: 0; }
+    .add-row { display: flex; gap: 0.5rem; margin-top: 0.8rem; align-items: flex-start; }
+    .add-row input { margin: 0; }
+    .add-row button { margin: 0; white-space: nowrap; }
+    .stats { color: #888; font-size: 0.82rem; margin-top: 0.5rem; }
+    [x-cloak] { display: none !important; }
   </style>
 </head>
-<body>
+<body x-data="dwailApp()" x-cloak>
   <h1>dwail</h1>
 
-  <!-- Workstation Management -->
+  <!-- Workstations -->
   <section>
     <h2>Workstations</h2>
-    <div id="workstation-list">Loading...</div>
-    <hr>
-    <label>Add workstation (ZeroTier IP):
-      <input id="add-ip" type="text" placeholder="10.x.x.x">
-    </label>
-    <button onclick="addWorkstation()">Add</button>
-    <div id="add-error" style="color:red"></div>
-  </section>
 
-  <!-- Model Loader -->
-  <section>
-    <h2>Load Model</h2>
-    <label>Model ID (HuggingFace path):
-      <input id="model-id" type="text" placeholder="meta-llama/Llama-3.1-8B-Instruct">
-    </label>
-    <button onclick="loadModel()">Load Model</button>
-    <div id="load-status"></div>
-    <div id="load-error" style="color:red"></div>
-  </section>
+    <div x-show="workstations.length === 0" class="muted">No workstations registered.</div>
 
-  <!-- Code Snippets -->
-  <section id="snippets-section" style="display:none">
-    <h2>Snippets</h2>
-    <p>Endpoint: <code id="endpoint-url"></code></p>
-    <div class="tab-bar">
-      <button onclick="showTab('py-basic')">Python (basic)</button>
-      <button onclick="showTab('py-async')">Python (async)</button>
-      <button onclick="showTab('py-stream')">Python (streaming)</button>
-      <button onclick="showTab('js-basic')">JS (basic)</button>
-      <button onclick="showTab('js-stream')">JS (streaming)</button>
+    <template x-for="ws in workstations" :key="ws.id">
+      <div class="ws-row">
+        <span class="ws-ip" x-text="ws.ip"></span>
+        <span :class="'badge badge-' + wsBadgeClass(ws)" x-text="wsStateLabel(ws)"></span>
+        <span class="ws-detail" x-text="wsDetail(ws)"></span>
+        <button @click="removeWorkstation(ws.id)">Remove</button>
+      </div>
+    </template>
+
+    <div class="add-row">
+      <input x-model="addIp" type="text" placeholder="10.x.x.x" @keydown.enter="addWorkstation()">
+      <button @click="addWorkstation()" :disabled="addIp.trim() === ''">Add</button>
     </div>
-    <div id="py-basic" class="tab active"><pre id="py-basic-code"></pre></div>
-    <div id="py-async" class="tab"><pre id="py-async-code"></pre></div>
-    <div id="py-stream" class="tab"><pre id="py-stream-code"></pre></div>
-    <div id="js-basic" class="tab"><pre id="js-basic-code"></pre></div>
-    <div id="js-stream" class="tab"><pre id="js-stream-code"></pre></div>
+    <div class="error" x-show="addError" x-text="addError"></div>
   </section>
 
-  <!-- Test Panel -->
-  <section id="test-section" style="display:none">
+  <!-- Model -->
+  <section>
+    <h2>Model</h2>
+
+    <template x-if="modelState === 'idle'">
+      <div>
+        <input x-model="modelInput" type="text"
+               placeholder="meta-llama/Llama-3.1-8B-Instruct"
+               @keydown.enter="loadModel()">
+        <button @click="loadModel()" :disabled="modelInput.trim() === ''">Load</button>
+        <div class="error" x-show="modelError" x-text="modelError"></div>
+      </div>
+    </template>
+
+    <template x-if="modelState === 'loading'">
+      <div class="model-status">
+        Loading <strong x-text="currentModel"></strong>…
+        <span class="muted">(polling until ready)</span>
+        <br>
+        <button @click="stopModel()" style="margin-top:0.6rem">Cancel</button>
+      </div>
+    </template>
+
+    <template x-if="modelState === 'running'">
+      <div>
+        <div class="model-status">
+          <span class="badge badge-running">running</span>
+          &nbsp;<strong x-text="currentModel"></strong>
+          &nbsp;<span class="muted" x-text="'(' + (supportsChat ? 'chat' : 'base') + ' · ' + mode + ')'"></span>
+        </div>
+        <div class="muted" style="margin-bottom:0.6rem">
+          Endpoint: <span x-text="endpoint"></span>
+        </div>
+        <button @click="stopModel()">Stop</button>
+        <div class="error" x-show="modelError" x-text="modelError"></div>
+      </div>
+    </template>
+  </section>
+
+  <!-- Snippets -->
+  <section x-show="modelState === 'running'">
+    <h2>Snippets</h2>
+    <div class="tab-bar">
+      <button :class="activeTab === 'py-basic'   ? 'active' : ''" @click="activeTab = 'py-basic'">Python</button>
+      <button :class="activeTab === 'py-async'   ? 'active' : ''" @click="activeTab = 'py-async'">Python async</button>
+      <button :class="activeTab === 'py-stream'  ? 'active' : ''" @click="activeTab = 'py-stream'">Python stream</button>
+      <button :class="activeTab === 'js-basic'   ? 'active' : ''" @click="activeTab = 'js-basic'">JS</button>
+      <button :class="activeTab === 'js-stream'  ? 'active' : ''" @click="activeTab = 'js-stream'">JS stream</button>
+    </div>
+    <pre x-text="snippet()"></pre>
+    <button class="snippet-copy" @click="copySnippet()">Copy</button>
+  </section>
+
+  <!-- Test -->
+  <section x-show="modelState === 'running'">
     <h2>Test</h2>
-    <label>Prompt:
-      <textarea id="test-prompt" rows="3" placeholder="Say hello."></textarea>
-    </label>
-    <button onclick="runTest()">Send</button>
-    <div id="test-stats" style="color:#666; font-size:0.85rem;"></div>
-    <pre id="test-output" style="min-height:4rem; background:#f4f4f4; padding:1rem;"></pre>
+    <textarea x-model="testPrompt" rows="3" placeholder="Say hello."></textarea>
+    <button @click="runTest()" :disabled="testRunning || testPrompt.trim() === ''">Send</button>
+    <pre x-text="testOutput || ' '" style="min-height: 4rem; margin-top: 0.6rem;"></pre>
+    <div class="stats" x-show="testStats" x-text="testStats"></div>
   </section>
 
   <script src="app.js"></script>
